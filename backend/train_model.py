@@ -2,91 +2,81 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms, models
+from torchvision import transforms, datasets, models
 import os
 
-# Veri yükleme ve ön işleme
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 transform = transforms.Compose([
-    transforms.Resize((128, 128)),  # Görselleri 128x128'e yeniden boyutlandır
-    transforms.ToTensor(),          # Görselleri tensöre dönüştür
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize et
+    transforms.Resize((224, 224)),
+    transforms.Grayscale(num_output_channels=3),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5], [0.5])
 ])
 
-# Veri kümesini yükle (etiket sırasını kontrol et)
-train_dataset = datasets.ImageFolder(root="cloth_dataset", transform=transform)
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+# 🔧 KLASÖR YOLUNU GÜNCELLE (DÜZGÜN YAZILIŞ)
+train_dir = "fashionmsit/output/train"
 
-# Basit bir CNN modeli tanımlama
-class CNNModel(nn.Module):
+train_dataset = datasets.ImageFolder(root=train_dir, transform=transform)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+# Basit CNN Modeli
+class SimpleCNN(nn.Module):
     def __init__(self):
-        super(CNNModel, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.fc1 = nn.Linear(64 * 16 * 16, 256)
-        self.fc2 = nn.Linear(256, 2)  # İki sınıf: kısa kollu ve uzun kollu
+        super(SimpleCNN, self).__init__()
+        self.conv1 = nn.Conv2d(3, 16, 3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
+        self.fc1 = nn.Linear(32 * 56 * 56, 128)
+        self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = torch.relu(self.conv1(x))
         x = torch.max_pool2d(x, 2)
         x = torch.relu(self.conv2(x))
         x = torch.max_pool2d(x, 2)
-        x = torch.relu(self.conv3(x))
-        x = torch.max_pool2d(x, 2)
-        x = x.view(x.size(0), -1)  # Flatten
+        x = x.view(x.size(0), -1)
         x = torch.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.fc2(x)
 
-# Modeli oluştur ve cihazı seç
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CNNModel().to(device)
+# EfficientNet Modeli
+def get_efficientnet(num_classes=10):
+    model = models.efficientnet_b0(pretrained=True)
+    for param in model.features.parameters():
+        param.requires_grad = False
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+    return model
 
-# Kayıp fonksiyonu ve optimizasyon
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+# Eğitim fonksiyonu
+def train_model(model, model_name, epochs=5):
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Eğitim döngüsü
-epochs = 10
-for epoch in range(epochs):
-    model.train()
-    running_loss = 0.0
-    correct = 0
-    total = 0
-    
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-        
-        optimizer.zero_grad()
-        
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        
-        running_loss += loss.item()
-        _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+    for epoch in range(epochs):
+        model.train()
+        total_loss, correct, total = 0, 0, 0
 
-    print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}, Accuracy: {100 * correct/total:.2f}%")
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
 
-# Eğitim kodunun içinde doğruluk hesaplamak
-correct = 0
-total = 0
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-for images, labels in train_loader:
-    outputs = model(images)
-    _, predicted = torch.max(outputs, 1)
-    total += labels.size(0)
-    correct += (predicted == labels).sum().item()
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            correct += (predicted == labels).sum().item()
+            total += labels.size(0)
 
-accuracy = 100 * correct / total
-print(f'Accuracy: {accuracy}%')
+        acc = 100 * correct / total
+        print(f"[{model_name}] Epoch {epoch+1}/{epochs} - Loss: {total_loss:.4f} - Accuracy: {acc:.2f}%")
 
-# Modeli kaydet
-model_path = "model/cnn_model.pt"
-os.makedirs("model", exist_ok=True)
-torch.save(model.state_dict(), model_path)
-print(f"Model başarıyla kaydedildi: {model_path}")
-print(train_dataset.classes)  # Etiketlerin sırasını kontrol et
+    os.makedirs("model", exist_ok=True)
+    torch.save(model.state_dict(), f"model/{model_name}.pt")
+    print(f"{model_name} başarıyla kaydedildi.")
+
+# Eğitimleri başlat
+train_model(SimpleCNN(), "simple_cnn", epochs=5)
+train_model(get_efficientnet(), "efficientnet_b0", epochs=5)
