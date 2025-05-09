@@ -1,0 +1,27 @@
+# Bytecode dosyaları
+__pycache__/
+*.py[cod]
+
+# Ortam dosyaları
+.env
+
+# Virtual environment klasörleri
+venv/
+env/
+
+# IDE dosyaları
+.vscode/
+.idea/
+
+# Log dosyaları
+*.log
+
+# Jupyter checkpoint
+.ipynb_checkpoints/
+
+# OS dosyaları
+.DS_Store
+Thumbs.db
+
+kaggle.json
+
