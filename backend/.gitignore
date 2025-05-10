@@ -25,3 +25,7 @@ Thumbs.db
 
 kaggle.json
 
+fashion_dataset_organized/
+fashion_product_images_small/
+*.csv
+*.jpg
